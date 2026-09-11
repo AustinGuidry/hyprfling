@@ -8,6 +8,8 @@ knocks other floating windows out of the way. Turn on gravity and they fall.
 the layout right where it is, a plain click-drag throws it, and Esc puts
 everything back in its tile.
 
+![Fling mode: windows come loose, get thrown around, and tile again on Esc](assets/demo.gif)
+
 Tested on Hyprland 0.56.2 with the Lua config (`hyprland.lua`, Hyprland 0.55+).
 The older hyprlang config isn't supported.
 
