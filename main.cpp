@@ -15,8 +15,8 @@
 
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/event/EventBus.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
-#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 #include <hyprland/src/desktop/state/WindowState.hpp>
 #include <hyprland/src/desktop/state/ViewState.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
@@ -24,7 +24,6 @@
 #include <hyprland/src/layout/target/Target.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
 #include <hyprland/src/layout/supplementary/DragController.hpp>
-#include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
@@ -118,7 +117,7 @@ namespace {
 
     // Floating, visible, unpinned window sharing a workspace with `self`.
     SP<Layout::ITarget> neighbour(const PHLWINDOW& w, const PHLWINDOW& self) {
-        if (!w || w == self || !w->m_isMapped || w->isHidden() || w->m_pinned || w->m_workspace != self->m_workspace)
+        if (!w || w == self || !w->mapped() || w->isHidden() || (w->m_state & Desktop::View::WINDOW_STATE_PINNED) || w->m_workspace != self->m_workspace)
             return {};
 
         const auto TARGET = w->layoutTarget();
@@ -197,7 +196,7 @@ namespace {
         std::erase_if(state.bodies, [&](const SBody& b) { return b.target.lock() == target; });
         state.bodies.push_back({.target = target, .pos = target->position().pos(), .vel = vel, .ignore = overlapping(target)});
 
-        Log::logger->log(Log::DEBUG, "[hyprfling] launched {} at ({:.0f}, {:.0f}) px/s", target->window(), vel.x, vel.y);
+        LOG(Log::DEBUG, "[hyprfling] launched {} at ({:.0f}, {:.0f}) px/s", target->window(), vel.x, vel.y);
         wake();
     }
 
@@ -282,7 +281,7 @@ namespace {
         // Grabbing a window mid-flight catches it.
         std::erase_if(state.bodies, [&](const SBody& b) {
             const auto T = b.target.lock();
-            return !T || T == DRAGGED || !T->floating() || !T->space() || !T->window() || !T->window()->m_isMapped || T->window()->isHidden();
+            return !T || T == DRAGGED || !T->floating() || !T->space() || !T->window() || !T->window()->mapped() || T->window()->isHidden();
         });
 
         const double BOUNCE  = std::clamp<double>(cfg.bounce->value(), 0.0, 1.0);
@@ -338,7 +337,7 @@ namespace {
         // gaps included.
         std::vector<SPending> pending;
         for (const auto& w : Desktop::windowState()->windows()) {
-            if (!w->m_isMapped || w->isHidden() || !w->m_workspace || !pick(w) || Fullscreen::controller()->isFullscreen(w))
+            if (!w->mapped() || w->isHidden() || !w->m_workspace || !pick(w) || Fullscreen::controller()->isFullscreen(w))
                 continue;
 
             const auto TARGET = w->layoutTarget();
@@ -366,13 +365,13 @@ namespace {
         if (on) {
             mode.active   = true;
             state.enabled = true;
-            loosen([](const PHLWINDOW& w) { return w->m_workspace->isVisible(); });
+            loosen([](const PHLWINDOW& w) { return w->m_workspace->visible(); });
             HyprlandAPI::addNotification(PHANDLE, "[hyprfling] fling mode -- drag anything, Esc to stop", ACCENT, 3000);
             return;
         }
 
         if (mode.dragging) {
-            CKeybindManager::changeMouseBindMode(MBIND_INVALID);
+            g_layoutManager->endDragTarget();
             mode.dragging = false;
         }
 
@@ -383,7 +382,7 @@ namespace {
 
         for (const auto& [target, floatingSize] : mode.loosened) {
             const auto TARGET = target.lock();
-            if (!TARGET || !TARGET->floating() || !TARGET->window() || !TARGET->window()->m_isMapped)
+            if (!TARGET || !TARGET->floating() || !TARGET->window() || !TARGET->window()->mapped())
                 continue;
 
             g_layoutManager->changeFloatingMode(TARGET);
@@ -434,7 +433,7 @@ namespace {
         auto         vel   = (SAMPLES.back().pos - SAMPLES.front().pos) / DT;
         const double SPEED = std::hypot(vel.x, vel.y);
 
-        Log::logger->log(Log::DEBUG, "[hyprfling] release: {} samples over {:.3f}s, {:.0f} px/s", SAMPLES.size(), DT, SPEED);
+        LOG(Log::DEBUG, "[hyprfling] release: {} samples over {:.3f}s, {:.0f} px/s", SAMPLES.size(), DT, SPEED);
 
         if (SPEED < cfg.minSpeed->value())
             return;
@@ -458,7 +457,7 @@ namespace {
             if (!TARGET || !TARGET->floating())
                 return false; // bars, empty desktop: the click goes through
 
-            CKeybindManager::changeMouseBindMode(MBIND_MOVE);
+            g_layoutManager->beginDragTarget(TARGET, MBIND_MOVE);
             mode.dragging = true;
             return true;
         }
@@ -467,7 +466,7 @@ namespace {
             return false;
 
         release();
-        CKeybindManager::changeMouseBindMode(MBIND_INVALID);
+        g_layoutManager->endDragTarget();
         mode.dragging = false;
         return true;
     }
@@ -587,7 +586,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     for (const auto& [name, fn] : {std::pair{"mode", &luaMode}, std::pair{"yeet", &luaYeet}, std::pair{"toggle", &luaToggle}, std::pair{"stop", &luaStop}}) {
         const bool OK = HyprlandAPI::addLuaFunction(PHANDLE, "fling", name, fn);
-        Log::logger->log(OK ? Log::DEBUG : Log::WARN, "[hyprfling] register hl.plugin.fling.{}: {}", name, OK ? "ok" : "FAILED");
+        LOG(OK ? Log::DEBUG : Log::WARN, "[hyprfling] register hl.plugin.fling.{}: {}", name, OK ? "ok" : "FAILED");
         if (!OK)
             HyprlandAPI::addNotification(PHANDLE, std::format("[hyprfling] couldn't register hl.plugin.fling.{}", name), CHyprColor{1.0, 0.2, 0.2, 1.0}, 8000);
     }

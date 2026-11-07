@@ -10,14 +10,17 @@ everything back in its tile.
 
 ![Fling mode: windows come loose, get thrown around, and tile again on Esc](assets/demo.gif)
 
-Tested on Hyprland 0.56.2 with the Lua config (`hyprland.lua`, Hyprland 0.55+).
+Tested on Hyprland 0.57.1 with the Lua config (`hyprland.lua`, Hyprland 0.55+).
 The older hyprlang config isn't supported.
 
 ## Install
 
 You need Hyprland's headers (Arch's `hyprland` package ships them), a recent
-GCC (the plugin is built with `-std=c++2c`), `pkg-config`, and the Lua 5.5
-headers (`lua` on Arch).
+GCC (the plugin is built with `-std=c++2c`), `pkg-config`, and the headers for
+the Lua version your Hyprland links (5.5 on Arch, `lua`; 5.4 on Gentoo,
+`dev-lang/lua:5.4`). The Makefile reads that version off the Hyprland binary.
+Builds against Hyprland 0.57+; 0.57 reorganised the window and keybind
+classes, so older versions need the commit before that port.
 
 ```sh
 git clone https://github.com/AustinGuidry/hyprfling ~/hyprfling

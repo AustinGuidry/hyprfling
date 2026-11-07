@@ -4,12 +4,19 @@
 # the same compiler against the exact Hyprland headers that will load it.
 # Rebuild after every Hyprland update.
 
-# Hyprland can pull in Lua 5.4 through a dependency; link 5.5 explicitly so the
-# plugin's Lua calls bind to the interpreter the config actually runs in.
-# Distros name its pkg-config file differently.
-LUA := $(firstword $(foreach p,lua5.5 lua55 lua-5.5,$(if $(shell pkg-config --exists $(p) && echo y),$(p))))
+# Link the Lua that Hyprland itself links (its direct NEEDED entry), so the
+# plugin's Lua calls bind to the interpreter the config actually runs in. Other
+# libraries can pull in a second Lua, so ldd isn't used. Arch builds against
+# 5.5 (liblua.so.5.5), Gentoo/Debian against 5.4 (liblua5.4.so.0); 5.5 is the
+# fallback when the binary can't be inspected. Distros name the .pc differently.
+HYPRLAND_BIN := $(or $(shell command -v Hyprland),$(shell command -v hyprland))
+LUA_VER := $(shell readelf -d $(HYPRLAND_BIN) 2>/dev/null | \
+             sed -nE 's/.*\[liblua-?([0-9]\.[0-9])?\.so(\.([0-9]\.[0-9]))?.*/\1\3/p' | head -1)
+LUA_VER := $(or $(LUA_VER),5.5)
+LUA_NODOT := $(subst .,,$(LUA_VER))
+LUA := $(firstword $(foreach p,lua$(LUA_VER) lua$(LUA_NODOT) lua-$(LUA_VER),$(if $(shell pkg-config --exists $(p) && echo y),$(p))))
 ifeq ($(LUA),)
-$(error Lua 5.5 not found by pkg-config (tried lua5.5, lua55, lua-5.5))
+$(error Lua $(LUA_VER) (the one Hyprland links) not found by pkg-config (tried lua$(LUA_VER), lua$(LUA_NODOT), lua-$(LUA_VER)))
 endif
 
 CXXFLAGS ?= -O2
